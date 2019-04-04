@@ -1,0 +1,103 @@
+﻿#include <QImage>
+#include "imageProcesser.h"
+#include "foo.h"
+#include "imageUtility.h"
+#include "matchUtility.h"
+#include "ORBextractor.h"
+#include <QDebug>
+
+//---------------------------------------
+imageProcesser::imageProcesser(QObject *parent):
+        QObject(parent)
+{
+}
+//--------------------------------------------------------------------------------
+void imageProcesser::matchTest(std::string input1,std::string input2,int type, bool is2NN)
+{
+    cv::Mat in1,in2,out,_in1,_in2;
+    QImage matchImg,in1Img,in2Img;
+    //由于QImage转cv：：Mat后，虽然可以显示，可是存在一些问题，故直接读取算了
+    in1 = cv::imread(input1,cv::IMREAD_UNCHANGED);
+    in2 = cv::imread(input2,cv::IMREAD_UNCHANGED);
+
+    std::vector<cv::KeyPoint> key1, key2;
+    cv::Mat desc1,desc2;
+
+    cv::Ptr<cv::ORB> orb = cv::ORB::create(3000);
+    cv::Ptr<cv::xfeatures2d::SIFT> sift = cv::xfeatures2d::SIFT::create(3000);
+    cv::Ptr<cv::xfeatures2d::SURF> surf = cv::xfeatures2d::SURF::create(3000);
+    ORBextractor orb2;
+    switch (type) {
+        case 1:
+            orb->detectAndCompute(in1,cv::Mat(),key1,desc1);
+            orb->detectAndCompute( in2,cv::Mat(),key2,desc2);
+            break;
+        case 2:
+            sift->detectAndCompute(in1,cv::Mat(),key1,desc1);
+            sift->detectAndCompute(in2,cv::Mat(),key2,desc2);
+            break;
+        case 3:
+            surf->detectAndCompute(in1,cv::Mat(),key1,desc1);
+            surf->detectAndCompute(in2,cv::Mat(),key2,desc2);
+            break;
+        case 4:
+            in1 = cv::imread(input1,cv::IMREAD_GRAYSCALE);
+            in2 = cv::imread(input2,cv::IMREAD_GRAYSCALE);
+            orb2(in1,cv::Mat(),key1,desc1);
+            orb2(in2,cv::Mat(),key2,desc2);
+            break;
+        default:
+            emit finishMatch(QImage());
+            return;
+    }
+
+    ImageUtility::drawKeyPoints(in1,key1,_in1);
+    ImageUtility::MatToQImage(_in1,in1Img);
+    emit finishDetectPhoto1(in1Img);
+
+    ImageUtility::drawKeyPoints(in2,key2,_in2);
+    ImageUtility::MatToQImage(_in2,in2Img);
+    emit finishDetectPhoto2(in2Img);
+
+    std::vector<cv::DMatch> matches;
+    if(is2NN)
+    {
+        MatchUtility::knnMatch(desc1,desc2,matches);
+    }
+    else
+    {
+        cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce");
+        matcher->match(desc1,desc2,matches);
+    }
+
+    std::vector<char> matchesMask;
+    if(!key1.empty() && !key2.empty()&&!matches.empty()){
+        MatchUtility::ransac(matches,key1,key2,matchesMask);
+    }
+
+    Foo::myDrawMatches(in1,key1,in2,key2,matches,out,matchesMask);
+
+    ImageUtility::MatToQImage(out,matchImg);
+
+    emit finishMatch(matchImg);
+}
+
+void imageProcesser::stitchTest(std::string input1, std::string input2, int kind)
+{
+    cv::Mat in1,in2,out;
+
+    in1 = cv::imread(input1,-1);
+    in2 = cv::imread(input2,-1);
+
+    Foo::myStitch(in1,in2,out,kind);
+
+    QImage stitchImg;
+    ImageUtility::MatToQImage(out,stitchImg);
+    emit finishStitch(stitchImg);
+}
+
+//--------------------------------------------
+imageProcesser::~imageProcesser()
+{
+
+}
